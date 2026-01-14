@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>INSTMANU_Оплата</title>
+  <link rel="icon" href="icon/logo.ico" type="image/x-icon">
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #0f172a, #071133, #001529);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      max-width: 900px;
+      width: 100%;
+      background: rgba(2, 16, 40, 0.33);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 20px;
+      padding: 30px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      backdrop-filter: blur(8px);
+    }
+    h1 {
+      margin: 0;
+      font-size: 2rem;
+      font-weight: 800;
+    }
+    input {
+      flex: 1;
+      padding: 12px;
+      font-size: 1.1rem;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: transparent;
+      color: white;
+    }
+    input::placeholder {
+      color: rgba(255,255,255,0.3);
+    }
+    button {
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      background: linear-gradient(to right, #0ea5e9, #4f46e5);
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+    button:hover { transform: scale(1.02); }
+    button:active { transform: scale(0.96); }
+    .card {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .result {
+      font-size: 2rem;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>INSTMANU_Оплата</h1>
+    <p>Калькулятор оплаты — анимированное пошаговое отображение результата</p>
+
+    <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
+      <input type="text" id="amount" placeholder="Введите сумму, например 1200.50" />
+      <input type="text" id="ratio" placeholder="Процент оплаты, например 1% или 0.01" />
+      <button onclick="startCalculation()">Начать</button>
+      <button onclick="resetCalc()">Сброс</button>
+    </div>
+    <small style="display:block; margin-top:5px; color:rgba(255,255,255,0.6)">Формула: сумма × процент оплаты → +3% → × курс юаня к рублю</small>
+
+    <div class="card">
+      <div>Шаг 1 — Расчёт доли оплаты</div>
+      <div id="step1" class="result">0.00¥</div>
+    </div>
+
+    <div class="card">
+      <div>Шаг 2 — Увеличение на 3% после расчёта доли (комиссия, уплачиваемая банку)</div>
+      <div id="step2" class="result">0.00¥</div>
+    </div>
+
+    <div class="card">
+      <div id="rateLabel">Шаг 3 — Умножить на курс юаня к рублю: получение данных...</div>
+      <div id="step3" class="result">0.00₽</div>
+    </div>
+  </div>
+
+  <script>
+  let animFrameIds = [];
+  let cnyRate = 11.2; // 默认值
+
+  async function fetchCnyRate() {
+    try {
+      const resp = await fetch("https://www.cbr-xml-daily.ru/daily_json.js");
+      const data = await resp.json();
+      const nominal = data.Valute.CNY.Nominal;
+      const value = data.Valute.CNY.Value;
+      cnyRate = value / nominal; 
+      document.querySelector("#rateLabel").textContent =
+        "Шаг 3 — Умножить на курс юаня к рублю: " + cnyRate.toFixed(4);
+    } catch (e) {
+	  document.querySelector("#rateLabel").textContent = "Шаг 3 — Умножить на курс юаня к рублю: не удалось получить курс, используется значение 11.2";
+      console.error("Не удалось получить курс, используется значение 11.2", e);
+    }
+  }
+  fetchCnyRate();
+
+  function animateValue(from, to, duration, setter) {
+    const start = performance.now();
+    function step(now) {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const cur = from + (to - from) * eased;
+      setter(cur);
+      if (t < 1) {
+        const id = requestAnimationFrame(step);
+        animFrameIds.push(id);
+      } else {
+        setter(to);
+      }
+    }
+    const id = requestAnimationFrame(step);
+    animFrameIds.push(id);
+  }
+
+  function parseRatio(value) {
+    if (!value) return 1;
+    value = value.trim().replace(",", "."); // ✅ 支持逗号小数
+    if (value.endsWith("%")) {
+      const num = parseFloat(value.replace("%", ""));
+      return num / 100;
+    }
+    const num = parseFloat(value);
+    if (num > 1) {
+      return num / 100;
+    }
+    return num;
+  }
+
+  function startCalculation() {
+    resetCalc(false);
+    const amount = parseFloat(document.getElementById("amount").value.replace(/\s/g, "").replace(",", "."));
+    const ratioInput = document.getElementById("ratio").value;
+    const ratio = parseRatio(ratioInput);
+
+    if (!amount || !ratio) return;
+
+    const s1 = amount * ratio;
+    const s2 = s1 * 1.03;
+    const s3 = s2 * cnyRate;
+
+    // 每一步动画从上一步的值开始
+    animateValue(amount, s1, 300, v => document.getElementById("step1").textContent = v.toFixed(2)+"¥");
+    animateValue(s1, s2, 375, v => document.getElementById("step2").textContent = v.toFixed(2)+"¥");
+    animateValue(s2, s3, 450, v => document.getElementById("step3").textContent = v.toFixed(2)+"₽");
+  }
+
+  function resetCalc(clearInput = true) {
+    animFrameIds.forEach(id => cancelAnimationFrame(id));
+    animFrameIds = [];
+    document.getElementById("step1").textContent = "0.00¥";
+    document.getElementById("step2").textContent = "0.00¥";
+    document.getElementById("step3").textContent = "0.00₽";
+    if (clearInput) {
+      document.getElementById("amount").value = "";
+      document.getElementById("ratio").value = "";
+    }
+  }
+</script>
+</body>
+</html>
